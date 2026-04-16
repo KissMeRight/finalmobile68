@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: devops-lab
+  namespace: argocd
+  # finalizer ทำให้ ArgoCD ลบ K8s resources เมื่อลบ Application นี้ด้วย
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Project = default (ใช้ default project ของ ArgoCD)
+  project: default
+
+  # Source = GitOps repository ที่ Jenkins push manifest ไว้
+  source:
+    repoURL: https://github.com/KissMeRight/finalmobile68.git
+    targetRevision: main       # watch branch main
+    path: k8s                  # ดู manifest ใน folder k8s/
+
+  # Destination = Kubernetes cluster ที่จะ deploy
+  destination:
+    server: https://kubernetes.default.svc   # local cluster
+    namespace: default
+
+  # Sync policy
+  syncPolicy:
+    # automated = ArgoCD sync อัตโนมัติเมื่อ manifest เปลี่ยน
+    automated:
+      prune: true        # ลบ K8s resources ที่ถูกลบออกจาก Git
+      selfHeal: true     # แก้ไข drift (ถ้าใครไป edit K8s โดยตรง ArgoCD จะ revert)
+    syncOptions:
+      - CreateNamespace=true   # สร้าง namespace อัตโนมัติถ้าไม่มี
+    retry:
+      limit: 3           # retry 3 ครั้งถ้า sync fail
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 30s

@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-lab-green
+  namespace: default
+  labels:
+    app: devops-lab
+    slot: green
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-lab
+      slot: green
+  template:
+    metadata:
+      labels:
+        app: devops-lab
+        slot: green
+        version: v2         # Jenkins update ตรงนี้เมื่อ build ใหม่
+    spec:
+      containers:
+        - name: devops-lab
+          image: hanaari/devops-lab-app:v2   # เปลี่ยนเป็น username จริง
+          ports:
+            - containerPort: 3000
+          env:
+            - name: APP_VERSION
+              value: "v2"
+            - name: SLOT
+              value: "green"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"

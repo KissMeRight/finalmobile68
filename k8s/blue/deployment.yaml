@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-lab-blue
+  namespace: default
+  labels:
+    app: devops-lab
+    slot: blue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-lab
+      slot: blue
+  template:
+    metadata:
+      labels:
+        app: devops-lab
+        slot: blue
+        version: v1         # Jenkins จะ update ตรงนี้อัตโนมัติ
+    spec:
+      containers:
+        - name: devops-lab
+          image: hanaari/devops-lab-app:v1   # เปลี่ยนเป็น username จริง
+          ports:
+            - containerPort: 3000
+          env:
+            - name: APP_VERSION
+              value: "v1"
+            - name: SLOT
+              value: "blue"
+          # Liveness probe — restart ถ้า app ค้าง
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          # Readiness probe — K8s ส่ง traffic เมื่อพร้อมแล้วเท่านั้น
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"

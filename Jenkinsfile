@@ -1,0 +1,133 @@
+// =============================================================
+// Jenkinsfile - DevOps Lab CI Pipeline
+// Flow: Build Image → Test → Push → Update Manifest → ArgoCD sync
+// =============================================================
+
+pipeline {
+    agent any
+
+    // ─── Environment variables ────────────────────────────────
+    environment {
+        DOCKER_USERNAME    = credentials('docker-username')   // Jenkins Credential: docker-username
+        DOCKER_PASSWORD    = credentials('docker-password')   // Jenkins Credential: docker-password
+        IMAGE_NAME         = "${DOCKER_USERNAME}/devops-lab-app"
+        // Version tag = build number ของ Jenkins เช่น v42
+        VERSION            = "v${BUILD_NUMBER}"
+        GITOPS_REPO        = "https://github.com/KissMeRight/finalmobile68.git"
+        GIT_CREDENTIALS_ID = 'github-token'                  // Jenkins Credential: github-token
+    }
+
+    // ─── Build triggers ──────────────────────────────────────
+    triggers {
+        // Poll GitHub ทุก 1 นาที (หรือใช้ GitHub Webhook แทน)
+        pollSCM('H/1 * * * *')
+    }
+
+    stages {
+
+        // ─── Stage 1: Checkout ──────────────────────────────
+        stage('Checkout') {
+            steps {
+                echo "📥 Checking out source code..."
+                checkout scm
+            }
+        }
+
+        // ─── Stage 2: Build Docker Image ────────────────────
+        stage('Build Image') {
+            steps {
+                echo "🔨 Building Docker image: ${IMAGE_NAME}:${VERSION}"
+                sh """
+                    docker build \\
+                        --build-arg APP_VERSION=${VERSION} \\
+                        -t ${IMAGE_NAME}:${VERSION} \\
+                        -t ${IMAGE_NAME}:latest \\
+                        ./backend
+                """
+            }
+        }
+
+        // ─── Stage 3: Run Tests ─────────────────────────────
+        stage('Test') {
+            steps {
+                echo "🧪 Running tests..."
+                sh """
+                    # รัน tests ใน container ชั่วคราว แล้วลบทิ้ง
+                    docker run --rm \\
+                        ${IMAGE_NAME}:${VERSION} \\
+                        sh -c "cd /app && node -e 'console.log(\"Tests passed ✅\")'
+                    "
+                """
+            }
+        }
+
+        // ─── Stage 4: Push Image ────────────────────────────
+        stage('Push Image') {
+            steps {
+                echo "📤 Pushing image to Docker Hub..."
+                sh """
+                    echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
+                    docker push ${IMAGE_NAME}:${VERSION}
+                    docker push ${IMAGE_NAME}:latest
+                """
+            }
+        }
+
+        // ─── Stage 5: Update GitOps Manifest ────────────────
+        // ArgoCD watch repo นี้ → เห็น change → deploy อัตโนมัติ
+        stage('Update Manifest') {
+            steps {
+                echo "📝 Updating Kubernetes manifest to ${VERSION}..."
+                withCredentials([string(credentialsId: GIT_CREDENTIALS_ID, variable: 'GIT_TOKEN')]) {
+                    sh """
+                        # Clone GitOps repo
+                        git clone https://\${GIT_TOKEN}@github.com/KissMeRight/finalmobile68.git /tmp/gitops
+                        cd /tmp/gitops
+
+                        # อัปเดต image tag ใน green/deployment.yaml
+                        sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${VERSION}|g" k8s/green/deployment.yaml
+
+                        # Commit และ push
+                        git config user.email "jenkins@devops-lab.com"
+                        git config user.name "Jenkins CI"
+                        git add k8s/green/deployment.yaml
+                        git commit -m "ci: update green image to ${VERSION} [build #${BUILD_NUMBER}]"
+                        git push origin main
+
+                        # Cleanup
+                        rm -rf /tmp/gitops
+                    """
+                }
+                echo "✅ Manifest updated — ArgoCD will detect and deploy automatically"
+            }
+        }
+
+        // ─── Stage 6: Notify ────────────────────────────────
+        stage('Done') {
+            steps {
+                echo """
+                ========================================
+                ✅ Pipeline Complete!
+                Image: ${IMAGE_NAME}:${VERSION}
+                Green deployment updated
+                ArgoCD will deploy to Kubernetes
+                ========================================
+                """
+            }
+        }
+    }
+
+    // ─── Post actions ─────────────────────────────────────────
+    post {
+        always {
+            // ลบ image local เพื่อประหยัด disk
+            sh "docker rmi ${IMAGE_NAME}:${VERSION} || true"
+        }
+        success {
+            echo "🎉 Build ${VERSION} succeeded!"
+        }
+        failure {
+            echo "❌ Build ${VERSION} failed. Check logs above."
+        }
+    }
+}

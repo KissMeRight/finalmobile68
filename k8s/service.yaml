@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: devops-lab-service
+  namespace: default
+  labels:
+    app: devops-lab
+spec:
+  type: NodePort          # ใช้ NodePort สำหรับ Minikube (ไม่มี LoadBalancer)
+  selector:
+    app: devops-lab
+    slot: blue            # ← ArgoCD / Backend เปลี่ยนตรงนี้ระหว่าง blue ↔ green
+  ports:
+    - protocol: TCP
+      port: 80            # port ที่ Service expose
+      targetPort: 3000    # port ที่ container รับ
+      nodePort: 30080     # port บน Node (เข้าถึงได้จาก minikube ip:30080)

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-lab-backend
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-lab-backend
+  template:
+    metadata:
+      labels:
+        app: devops-lab-backend
+    spec:
+      containers:
+        - name: backend
+          image: YOUR_DOCKERHUB_USERNAME/devops-lab-backend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: JENKINS_URL
+              value: "http://jenkins-service:8080"
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-service:9090"
+          volumeMounts:
+            # Mount docker socket เพื่อให้ backend ควบคุม Docker บน host
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+            # Mount kubeconfig เพื่อให้ backend ควบคุม K8s
+            - name: kubeconfig
+              mountPath: /root/.kube
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: kubeconfig
+          hostPath:
+            path: /root/.kube
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devops-lab-backend-service
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: devops-lab-backend
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30300
