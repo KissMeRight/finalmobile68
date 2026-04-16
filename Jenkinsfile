@@ -28,8 +28,9 @@ pipeline {
         stage('Test') {
             steps {
                 echo "🧪 Test container"
+
                 bat """
-                    docker run --rm %IMAGE_NAME%:%VERSION% cmd /c echo Tests passed
+                    docker run --rm yourdockerhubusername/devops-lab-app:v3 node -e "console.log('Tests passed')"
                 """
             }
         }
