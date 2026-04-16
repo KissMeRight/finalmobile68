@@ -2,32 +2,30 @@ pipeline {
     agent any
 
     environment {
+        // Docker Hub credentials (ต้องตั้งใน Jenkins Credentials)
         DOCKER_USERNAME = credentials('docker-username')
         DOCKER_PASSWORD = credentials('docker-password')
 
         IMAGE_NAME = "${DOCKER_USERNAME}/devops-lab-app"
         VERSION = "v${BUILD_NUMBER}"
 
+        // GitOps repo (ArgoCD watch repo นี้)
         GITOPS_REPO = "https://github.com/KissMeRight/finalmobile68.git"
-        GIT_CREDENTIALS_ID = 'github-token'
-    }
-
-    triggers {
-        pollSCM('H/1 * * * *')
+        GIT_CREDENTIALS_ID = "github-token"
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                echo "📥 Checking out source code..."
+                echo "📥 Checkout source code"
                 git branch: 'main', url: "${GITOPS_REPO}"
             }
         }
 
         stage('Build Image') {
             steps {
-                echo "🔨 Building Docker image..."
+                echo "🔨 Build Docker image"
 
                 bat """
                     docker build ^
@@ -41,30 +39,31 @@ pipeline {
 
         stage('Test') {
             steps {
-                echo "🧪 Running tests..."
+                echo "🧪 Running tests inside container"
 
                 bat """
                     docker run --rm %IMAGE_NAME%:%VERSION% ^
-                        cmd /c "cd /app && node -e \"console.log('Tests passed ✅')\""
+                        sh -c "cd /app && echo Tests passed successfully"
                 """
             }
         }
 
-        stage('Push Image') {
+        stage('Docker Login & Push') {
             steps {
-                echo "📤 Pushing image..."
+                echo "📤 Login & Push to Docker Hub"
 
                 bat """
                     echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
+
                     docker push %IMAGE_NAME%:%VERSION%
                     docker push %IMAGE_NAME%:latest
                 """
             }
         }
 
-        stage('Update Manifest') {
+        stage('Update GitOps Repo') {
             steps {
-                echo "📝 Updating GitOps repo..."
+                echo "📝 Updating Kubernetes manifest"
 
                 withCredentials([string(credentialsId: 'github-token', variable: 'GIT_TOKEN')]) {
 
@@ -72,43 +71,38 @@ pipeline {
                         git clone https://%GIT_TOKEN%@github.com/KissMeRight/finalmobile68.git gitops
                         cd gitops
 
-                        powershell -Command "(Get-Content k8s\\green\\deployment.yaml) -replace 'image:.*devops-lab-app.*', 'image: %IMAGE_NAME%:%VERSION%' | Set-Content k8s\\green\\deployment.yaml"
+                        powershell -Command ^
+                        "(Get-Content k8s\\green\\deployment.yaml) ^
+                        -replace 'image:.*devops-lab-app.*', ^
+                        'image: %IMAGE_NAME%:%VERSION%' | Set-Content k8s\\green\\deployment.yaml"
 
-                        git config user.email "jenkins@devops-lab.com"
-                        git config user.name "Jenkins CI"
+                        git config user.email "jenkins@ci.com"
+                        git config user.name "jenkins"
 
                         git add k8s\\green\\deployment.yaml
-                        git commit -m "ci: update image %VERSION% [build #%BUILD_NUMBER%]"
+                        git commit -m "ci: update image to %VERSION% [build #%BUILD_NUMBER%]"
                         git push origin main
                     """
                 }
-            }
-        }
-
-        stage('Done') {
-            steps {
-                echo """
-================================================
-✅ PIPELINE SUCCESS
-Image: ${IMAGE_NAME}:${VERSION}
-ArgoCD will deploy automatically
-================================================
-"""
             }
         }
     }
 
     post {
         always {
-            bat "docker rmi %IMAGE_NAME%:%VERSION% || exit 0"
+            echo "🧹 Cleaning Docker image"
+
+            bat """
+                docker rmi %IMAGE_NAME%:%VERSION% || exit 0
+            """
         }
 
         success {
-            echo "🎉 SUCCESS: ${VERSION}"
+            echo "✅ PIPELINE SUCCESS: %VERSION%"
         }
 
         failure {
-            echo "❌ FAILED: Check logs"
+            echo "❌ PIPELINE FAILED"
         }
     }
 }

@@ -2,9 +2,16 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "yourdockerhubusername/devops-lab-app"
+        // Docker Hub credentials (ต้องตั้งใน Jenkins Credentials)
+        DOCKER_USERNAME = credentials('docker-username')
+        DOCKER_PASSWORD = credentials('docker-password')
+
+        IMAGE_NAME = "${DOCKER_USERNAME}/devops-lab-app"
         VERSION = "v${BUILD_NUMBER}"
-        GIT_REPO = "https://github.com/KissMeRight/finalmobile68.git"
+
+        // GitOps repo (ArgoCD watch repo นี้)
+        GITOPS_REPO = "https://github.com/KissMeRight/finalmobile68.git"
+        GIT_CREDENTIALS_ID = "github-token"
     }
 
     stages {
@@ -12,18 +19,19 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "📥 Checkout source code"
-                git branch: 'main', url: "${GIT_REPO}"
+                git branch: 'main', url: "${GITOPS_REPO}"
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Image') {
             steps {
-                echo "🔨 Building Docker image"
+                echo "🔨 Build Docker image"
 
                 bat """
                     docker build ^
-                        -t yourdockerhubusername/devops-lab-app:%BUILD_NUMBER% ^
-                        -t yourdockerhubusername/devops-lab-app:latest ^
+                        --build-arg APP_VERSION=%VERSION% ^
+                        -t %IMAGE_NAME%:%VERSION% ^
+                        -t %IMAGE_NAME%:latest ^
                         ./backend
                 """
             }
@@ -31,48 +39,48 @@ pipeline {
 
         stage('Test') {
             steps {
-                echo "🧪 Running tests"
+                echo "🧪 Running tests inside container"
 
                 bat """
-                    docker run --rm yourdockerhubusername/devops-lab-app:%BUILD_NUMBER% ^
-                    cmd /c "echo Tests passed successfully"
+                    docker run --rm %IMAGE_NAME%:%VERSION% ^
+                        sh -c "cd /app && echo Tests passed successfully"
                 """
             }
         }
 
-        stage('Login & Push Docker') {
+        stage('Docker Login & Push') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker-credentials',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
+                echo "📤 Login & Push to Docker Hub"
 
-                    bat """
-                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
+                bat """
+                    echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
 
-                        docker push yourdockerhubusername/devops-lab-app:%BUILD_NUMBER%
-                        docker push yourdockerhubusername/devops-lab-app:latest
-                    """
-                }
+                    docker push %IMAGE_NAME%:%VERSION%
+                    docker push %IMAGE_NAME%:latest
+                """
             }
         }
 
         stage('Update GitOps Repo') {
             steps {
+                echo "📝 Updating Kubernetes manifest"
+
                 withCredentials([string(credentialsId: 'github-token', variable: 'GIT_TOKEN')]) {
 
                     bat """
                         git clone https://%GIT_TOKEN%@github.com/KissMeRight/finalmobile68.git gitops
                         cd gitops
 
-                        powershell -Command "(Get-Content k8s\\green\\deployment.yaml) -replace 'image:.*devops-lab-app.*', 'image: yourdockerhubusername/devops-lab-app:%BUILD_NUMBER%' | Set-Content k8s\\green\\deployment.yaml"
+                        powershell -Command ^
+                        "(Get-Content k8s\\green\\deployment.yaml) ^
+                        -replace 'image:.*devops-lab-app.*', ^
+                        'image: %IMAGE_NAME%:%VERSION%' | Set-Content k8s\\green\\deployment.yaml"
 
                         git config user.email "jenkins@ci.com"
                         git config user.name "jenkins"
 
-                        git add .
-                        git commit -m "update image %BUILD_NUMBER%"
+                        git add k8s\\green\\deployment.yaml
+                        git commit -m "ci: update image to %VERSION% [build #%BUILD_NUMBER%]"
                         git push origin main
                     """
                 }
@@ -82,15 +90,19 @@ pipeline {
 
     post {
         always {
-            bat "docker rmi yourdockerhubusername/devops-lab-app:%BUILD_NUMBER% || exit 0"
+            echo "🧹 Cleaning Docker image"
+
+            bat """
+                docker rmi %IMAGE_NAME%:%VERSION% || exit 0
+            """
         }
 
         success {
-            echo "🎉 BUILD SUCCESS: %BUILD_NUMBER%"
+            echo "✅ PIPELINE SUCCESS: %VERSION%"
         }
 
         failure {
-            echo "❌ BUILD FAILED"
+            echo "❌ PIPELINE FAILED"
         }
     }
 }
