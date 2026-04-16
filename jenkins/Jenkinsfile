@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "yourdockerhubusername/devops-lab-app"
+        IMAGE_NAME = "hanaari/devops-lab-app"
         VERSION = "v${BUILD_NUMBER}"
         GITOPS_REPO = "https://github.com/KissMeRight/finalmobile68.git"
     }
@@ -33,8 +33,7 @@ pipeline {
                 echo "🧪 Test container"
 
                 bat """
-                    docker run --rm %IMAGE_NAME%:%VERSION% ^
-                        sh -c "node -e \\"console.log('Tests passed')\\""
+                    docker run --rm %IMAGE_NAME%:%VERSION% sh -c "node -e \"console.log('Tests passed')\""
                 """
             }
         }
