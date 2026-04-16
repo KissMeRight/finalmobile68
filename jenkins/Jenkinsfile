@@ -33,7 +33,7 @@ pipeline {
                 echo "🧪 Test container"
 
                 bat """
-                    docker run --rm %IMAGE_NAME%:%VERSION% sh -c "node -e \"console.log('Tests passed')\""
+                    docker run --rm %IMAGE_NAME%:%VERSION% node -e "console.log('Tests passed')"
                 """
             }
         }
