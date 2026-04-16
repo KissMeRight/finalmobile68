@@ -31,7 +31,6 @@ pipeline {
         stage('Test') {
             steps {
                 echo "🧪 Test container"
-
                 bat """
                     docker run --rm %IMAGE_NAME%:%VERSION% node -e "console.log('Tests passed')"
                 """
@@ -70,10 +69,7 @@ pipeline {
                         git clone https://%GIT_TOKEN%@github.com/KissMeRight/finalmobile68.git gitops
                         cd gitops
 
-                        powershell -Command ^
-                        "(Get-Content k8s\\green\\deployment.yaml) ^
-                        -replace 'image:.*devops-lab-app.*', ^
-                        'image: %IMAGE_NAME%:%VERSION%' | Set-Content k8s\\green\\deployment.yaml"
+                        powershell -Command "(Get-Content k8s\\green\\deployment.yaml) -replace 'image:.*devops-lab-app.*', 'image: %IMAGE_NAME%:%VERSION%' | Set-Content k8s\\green\\deployment.yaml"
 
                         git config user.email "jenkins@ci.com"
                         git config user.name "jenkins"
