@@ -11,7 +11,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                echo "📥 Checkout"
+                echo "📥 Checkout source code"
                 git branch: 'main', url: "${GITOPS_REPO}"
             }
         }
@@ -20,7 +20,10 @@ pipeline {
             steps {
                 echo "🔨 Build Docker image"
                 bat """
-                    docker build -t %IMAGE_NAME%:%VERSION% -t %IMAGE_NAME%:latest ./backend
+                    docker build ^
+                        -t %IMAGE_NAME%:%VERSION% ^
+                        -t %IMAGE_NAME%:latest ^
+                        ./backend
                 """
             }
         }
@@ -30,20 +33,19 @@ pipeline {
                 echo "🧪 Test container"
 
                 bat """
-                    docker run --rm yourdockerhubusername/devops-lab-app:v3 node -e "console.log('Tests passed')"
+                    docker run --rm %IMAGE_NAME%:%VERSION% ^
+                        sh -c "node -e \\"console.log('Tests passed')\\""
                 """
             }
         }
 
         stage('Login Docker Hub') {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'docker-credentials',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
                     bat """
                         echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
                     """
@@ -65,16 +67,20 @@ pipeline {
                 withCredentials([string(credentialsId: 'github-token', variable: 'GIT_TOKEN')]) {
 
                     bat """
+                        if exist gitops rmdir /s /q gitops
                         git clone https://%GIT_TOKEN%@github.com/KissMeRight/finalmobile68.git gitops
                         cd gitops
 
-                        powershell -Command "(Get-Content k8s\\green\\deployment.yaml) -replace 'image:.*devops-lab-app.*', 'image: %IMAGE_NAME%:%VERSION%' | Set-Content k8s\\green\\deployment.yaml"
+                        powershell -Command ^
+                        "(Get-Content k8s\\green\\deployment.yaml) ^
+                        -replace 'image:.*devops-lab-app.*', ^
+                        'image: %IMAGE_NAME%:%VERSION%' | Set-Content k8s\\green\\deployment.yaml"
 
                         git config user.email "jenkins@ci.com"
                         git config user.name "jenkins"
 
                         git add .
-                        git commit -m "update %VERSION%"
+                        git commit -m "ci: update %VERSION%" || exit 0
                         git push origin main
                     """
                 }
