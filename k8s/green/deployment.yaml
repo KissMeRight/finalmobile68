@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: devops-lab
-          image: hanaari/devops-lab-app:v9
+          image: hanaari/devops-lab-app:v10
           ports:
             - containerPort: 3000
           env:
