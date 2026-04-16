@@ -3,7 +3,9 @@ const Docker = require('dockerode');
 // เชื่อมต่อ Docker daemon ที่รันบนเครื่อง
 // socketPath: '/var/run/docker.sock' = Linux/Mac
 // host + port = Docker TCP (ถ้าเปิด TCP)
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+const docker = new Docker({
+  socketPath: '//./pipe/docker_engine'
+});
 
 // ดึงรายการ images ที่มีบนเครื่อง
 const listImages = async () => {

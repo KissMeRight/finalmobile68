@@ -1,133 +1,96 @@
-// =============================================================
-// Jenkinsfile - DevOps Lab CI Pipeline
-// Flow: Build Image → Test → Push → Update Manifest → ArgoCD sync
-// =============================================================
-
 pipeline {
     agent any
 
-    // ─── Environment variables ────────────────────────────────
     environment {
-        DOCKER_USERNAME    = credentials('docker-username')   // Jenkins Credential: docker-username
-        DOCKER_PASSWORD    = credentials('docker-password')   // Jenkins Credential: docker-password
-        IMAGE_NAME         = "${DOCKER_USERNAME}/devops-lab-app"
-        // Version tag = build number ของ Jenkins เช่น v42
-        VERSION            = "v${BUILD_NUMBER}"
-        GITOPS_REPO        = "https://github.com/KissMeRight/finalmobile68.git"
-        GIT_CREDENTIALS_ID = 'github-token'                  // Jenkins Credential: github-token
-    }
-
-    // ─── Build triggers ──────────────────────────────────────
-    triggers {
-        // Poll GitHub ทุก 1 นาที (หรือใช้ GitHub Webhook แทน)
-        pollSCM('H/1 * * * *')
+        IMAGE_NAME = "yourdockerhubusername/devops-lab-app"
+        VERSION = "v${BUILD_NUMBER}"
+        GIT_REPO = "https://github.com/KissMeRight/finalmobile68.git"
     }
 
     stages {
 
-        // ─── Stage 1: Checkout ──────────────────────────────
         stage('Checkout') {
             steps {
-                echo "📥 Checking out source code..."
-                checkout scm
+                echo "📥 Checkout source code"
+                git branch: 'main', url: "${GIT_REPO}"
             }
         }
 
-        // ─── Stage 2: Build Docker Image ────────────────────
-        stage('Build Image') {
+        stage('Build Docker Image') {
             steps {
-                echo "🔨 Building Docker image: ${IMAGE_NAME}:${VERSION}"
-                sh """
-                    docker build \\
-                        --build-arg APP_VERSION=${VERSION} \\
-                        -t ${IMAGE_NAME}:${VERSION} \\
-                        -t ${IMAGE_NAME}:latest \\
+                echo "🔨 Building Docker image"
+
+                bat """
+                    docker build ^
+                        -t yourdockerhubusername/devops-lab-app:%BUILD_NUMBER% ^
+                        -t yourdockerhubusername/devops-lab-app:latest ^
                         ./backend
                 """
             }
         }
 
-        // ─── Stage 3: Run Tests ─────────────────────────────
         stage('Test') {
             steps {
-                echo "🧪 Running tests..."
-                sh """
-                    # รัน tests ใน container ชั่วคราว แล้วลบทิ้ง
-                    docker run --rm \\
-                        ${IMAGE_NAME}:${VERSION} \\
-                        sh -c "cd /app && node -e 'console.log(\"Tests passed ✅\")'
-                    "
+                echo "🧪 Running tests"
+
+                bat """
+                    docker run --rm yourdockerhubusername/devops-lab-app:%BUILD_NUMBER% ^
+                    cmd /c "echo Tests passed successfully"
                 """
             }
         }
 
-        // ─── Stage 4: Push Image ────────────────────────────
-        stage('Push Image') {
+        stage('Login & Push Docker') {
             steps {
-                echo "📤 Pushing image to Docker Hub..."
-                sh """
-                    echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
-                    docker push ${IMAGE_NAME}:${VERSION}
-                    docker push ${IMAGE_NAME}:latest
-                """
-            }
-        }
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
 
-        // ─── Stage 5: Update GitOps Manifest ────────────────
-        // ArgoCD watch repo นี้ → เห็น change → deploy อัตโนมัติ
-        stage('Update Manifest') {
-            steps {
-                echo "📝 Updating Kubernetes manifest to ${VERSION}..."
-                withCredentials([string(credentialsId: GIT_CREDENTIALS_ID, variable: 'GIT_TOKEN')]) {
-                    sh """
-                        # Clone GitOps repo
-                        git clone https://\${GIT_TOKEN}@github.com/KissMeRight/finalmobile68.git /tmp/gitops
-                        cd /tmp/gitops
+                    bat """
+                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
 
-                        # อัปเดต image tag ใน green/deployment.yaml
-                        sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${VERSION}|g" k8s/green/deployment.yaml
-
-                        # Commit และ push
-                        git config user.email "jenkins@devops-lab.com"
-                        git config user.name "Jenkins CI"
-                        git add k8s/green/deployment.yaml
-                        git commit -m "ci: update green image to ${VERSION} [build #${BUILD_NUMBER}]"
-                        git push origin main
-
-                        # Cleanup
-                        rm -rf /tmp/gitops
+                        docker push yourdockerhubusername/devops-lab-app:%BUILD_NUMBER%
+                        docker push yourdockerhubusername/devops-lab-app:latest
                     """
                 }
-                echo "✅ Manifest updated — ArgoCD will detect and deploy automatically"
             }
         }
 
-        // ─── Stage 6: Notify ────────────────────────────────
-        stage('Done') {
+        stage('Update GitOps Repo') {
             steps {
-                echo """
-                ========================================
-                ✅ Pipeline Complete!
-                Image: ${IMAGE_NAME}:${VERSION}
-                Green deployment updated
-                ArgoCD will deploy to Kubernetes
-                ========================================
-                """
+                withCredentials([string(credentialsId: 'github-token', variable: 'GIT_TOKEN')]) {
+
+                    bat """
+                        git clone https://%GIT_TOKEN%@github.com/KissMeRight/finalmobile68.git gitops
+                        cd gitops
+
+                        powershell -Command "(Get-Content k8s\\green\\deployment.yaml) -replace 'image:.*devops-lab-app.*', 'image: yourdockerhubusername/devops-lab-app:%BUILD_NUMBER%' | Set-Content k8s\\green\\deployment.yaml"
+
+                        git config user.email "jenkins@ci.com"
+                        git config user.name "jenkins"
+
+                        git add .
+                        git commit -m "update image %BUILD_NUMBER%"
+                        git push origin main
+                    """
+                }
             }
         }
     }
 
-    // ─── Post actions ─────────────────────────────────────────
     post {
         always {
-            // ลบ image local เพื่อประหยัด disk
-            sh "docker rmi ${IMAGE_NAME}:${VERSION} || true"
+            bat "docker rmi yourdockerhubusername/devops-lab-app:%BUILD_NUMBER% || exit 0"
         }
+
         success {
-            echo "🎉 Build ${VERSION} succeeded!"
+            echo "🎉 BUILD SUCCESS: %BUILD_NUMBER%"
         }
+
         failure {
-            echo "❌ Build ${VERSION} failed. Check logs above."
+            echo "❌ BUILD FAILED"
         }
     }
 }
